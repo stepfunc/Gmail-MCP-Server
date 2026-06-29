@@ -298,6 +298,20 @@ Searches for emails using Gmail search syntax.
 }
 ```
 
+### 5a. Read Thread (`read_thread`)
+Retrieves every message in a thread in chronological order, **including your own SENT replies**. `read_email` shows a single message plus the older quoted history below it, so a reply you sent *after* the customer's last message is invisible; `read_thread` returns the complete back-and-forth, so the genuinely latest message is unambiguous. Use it to determine whose court the ball is in.
+
+```json
+{
+  "threadId": "182ab45cd67ef",
+  "includeBodies": false
+}
+```
+
+Parameters:
+- `threadId`: The thread ID (shown as `Thread ID:` by `read_email`, or as the message id by `search_emails` for single-message threads)
+- `includeBodies`: Optional. `false` (default) returns headers + a short snippet per message (light, ideal for triage/classification); `true` returns each message's full body text. Messages are always returned oldest-first, so the last entry is the latest message.
+
 ### 6. Modify Email (`modify_email`)
 Adds or removes labels from emails (move to different folders, archive, etc.).
 

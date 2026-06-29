@@ -153,6 +153,10 @@ const SearchEmailsSchema = z.object({
     query: z.string().describe("Gmail search query (e.g., 'from:example@gmail.com')"),
     maxResults: z.number().optional().describe("Maximum number of results to return"),
 });
+const ReadThreadSchema = z.object({
+    threadId: z.string().describe("ID of the thread to retrieve (the Thread ID shown by read_email/search_emails)"),
+    includeBodies: z.boolean().optional().describe("If true, include each message's full body text; if false (default), include only a short snippet per message. Headers and ordering are always returned."),
+});
 // Updated schema to include removeLabelIds
 const ModifyEmailSchema = z.object({
     messageId: z.string().describe("ID of the email message to modify"),
@@ -277,6 +281,11 @@ async function main() {
                 name: "search_emails",
                 description: "Searches for emails using Gmail search syntax",
                 inputSchema: zodToJsonSchema(SearchEmailsSchema),
+            },
+            {
+                name: "read_thread",
+                description: "Retrieves every message in a thread in chronological order, including your own SENT replies. Unlike read_email (which shows one message plus the older quoted history below it), this returns the complete back-and-forth so the genuinely latest message is unambiguous. Use it to determine whose court the ball is in for a thread.",
+                inputSchema: zodToJsonSchema(ReadThreadSchema),
             },
             {
                 name: "modify_email",
@@ -546,6 +555,46 @@ async function main() {
                             {
                                 type: "text",
                                 text: `Thread ID: ${threadId}\nSubject: ${subject}\nFrom: ${from}\nTo: ${to}\nDate: ${date}\n\n${contentTypeNote}${body}${attachmentInfo}`,
+                            },
+                        ],
+                    };
+                }
+                case "read_thread": {
+                    const validatedArgs = ReadThreadSchema.parse(args);
+                    const response = await gmail.users.threads.get({
+                        userId: 'me',
+                        id: validatedArgs.threadId,
+                        format: validatedArgs.includeBodies ? 'full' : 'metadata',
+                        ...(validatedArgs.includeBodies ? {} : { metadataHeaders: ['Subject', 'From', 'To', 'Date'] }),
+                    });
+                    const messages = response.data.messages || [];
+                    const threadId = response.data.id || validatedArgs.threadId;
+                    // Gmail returns thread messages in chronological (oldest-first) order,
+                    // so the final entry is always the genuinely latest message.
+                    const blocks = messages.map((msg, i) => {
+                        const headers = msg.payload?.headers || [];
+                        const header = (name) => headers.find(h => h.name?.toLowerCase() === name.toLowerCase())?.value || '';
+                        const subject = header('Subject');
+                        const from = header('From');
+                        const to = header('To');
+                        const date = header('Date');
+                        let content;
+                        if (validatedArgs.includeBodies) {
+                            const { text, html } = extractEmailContent(msg.payload || {});
+                            content = text || html || (msg.snippet || '');
+                        }
+                        else {
+                            content = msg.snippet || '';
+                        }
+                        return `[${i + 1}/${messages.length}] (message id: ${msg.id})\n` +
+                            `Date: ${date}\nFrom: ${from}\nTo: ${to}\nSubject: ${subject}\n\n${content}`;
+                    });
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Thread ID: ${threadId} (${messages.length} message${messages.length === 1 ? '' : 's'}, oldest first; the last entry is the latest message)\n\n` +
+                                    blocks.join('\n\n----------\n\n'),
                             },
                         ],
                     };
